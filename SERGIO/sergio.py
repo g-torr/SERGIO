@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 from .gene import gene
 from scipy.stats import ttest_rel, ttest_ind, ranksums
@@ -5,6 +6,7 @@ import sys
 import csv
 import networkx as nx
 from scipy.stats import wasserstein_distance
+
 
 class sergio (object):
 
@@ -222,6 +224,116 @@ class sergio (object):
                 #if self.dyn_:
                 #    for b in range(self.nBins_):
                 #        binDict[b].append(gene(np.int(row[0]),'MR', b))
+
+        self.master_regulators_idx_ = set(masterRegs)
+
+
+        if (len(self.master_regulators_idx_) + np.shape(allTargets)[0] != self.nGenes_):
+            print ("Error: Inconsistent number of genes")
+            sys.exit()
+
+        self.find_levels_(self.graph_) # make sure that this modifies the graph
+
+        if self.dyn_:
+            self.find_bin_order_(self.bifurcationMat_)
+
+    def build_graph_array (self, input_taregts, input_regs, shared_coop_state = 0):
+        """
+        # 1- shared_coop_state: if >0 then all interactions are modeled with that
+        # coop state, and coop_states in input_file_taregts are ignored. Otherwise,
+        # coop states are read from input file. Reasonbale values ~ 1-3
+        # 2- input_file_taregts: a csv file, one row per targets. Columns: Target Idx, #regulators,
+        # regIdx1,...,regIdx(#regs), K1,...,K(#regs), coop_state1,...,
+        # coop_state(#regs)
+        # 3- input_file_regs: a csv file, one row per master regulators. Columns: Master regulator Idx,
+        # production_rate1,...,productions_rate(#bins)
+        # 4- input_file_taregts should not contain any line for master regulators
+        # 5- For now, assume that nodes in graph are either master regulator or
+        # target. In other words, there should not be any node with no incomming
+        # or outgoing edge! OTHERWISE IT CAUSES ERROR IN CODE.
+        # 6- The indexing of genes start from 0. Also, the indexing used in
+        # input files should match the indexing (if applicable) used for initilizing
+        # the object.
+        input_taregts and input_regs are both 2d lists of arrays.
+        """
+
+        for i in range(self.nGenes_):
+            self.graph_[i] = {}
+            self.graph_[i]['targets'] = []
+
+
+        allRegs = []
+        allTargets = []
+
+
+        if (shared_coop_state <= 0):
+            for row in input_taregts:
+                nRegs = np.int(row[1])
+                ##################### Raise Error ##########################
+                if nRegs == 0:
+                    print ("Error: a master regulator (#Regs = 0) appeared in input")
+                    sys.exit()
+                    ############################################################
+
+                currInteraction = []
+                currParents = []
+                for regId, K, C_state in zip(row[2: 2 + nRegs], row[2+nRegs : 2+2*nRegs], row[2+2*nRegs : 2+3*nRegs]):
+                    currInteraction.append((np.int(regId), np.float(K), np.float(C_state), 0)) # last zero shows half-response, it is modified in another method
+                    allRegs.append(np.int(regId))
+                    currParents.append(np.int(regId))
+                    self.graph_[np.int(regId)]['targets'].append(np.int(row[0]))
+
+                self.graph_[np.int(row[0])]['params'] = currInteraction
+                self.graph_[np.int(row[0])]['regs'] = currParents
+                self.graph_[np.int(row[0])]['level'] = -1 # will be modified later
+                allTargets.append(np.int(row[0]))
+
+                #if self.dyn_:
+                #    for b in range(self.nBins_):
+                #        binDict[b].append(gene(np.int(row[0]),'T', b))
+        else:
+            for indRow, row in enumerate(input_taregts):
+                nRegs = np.int(np.float(row[1]))
+                ##################### Raise Error ##########################
+                if nRegs == 0:
+                    print ("Error: a master regulator (#Regs = 0) appeared in input")
+                    sys.exit()
+                    ############################################################
+
+                currInteraction = []
+                currParents = []
+                for regId, K, in zip(row[2: 2 + nRegs], row[2+nRegs : 2+2*nRegs]):
+                    currInteraction.append((np.int(np.float(regId)), np.float(K), shared_coop_state, 0)) # last zero shows half-response, it is modified in another method
+                    allRegs.append(np.int(np.float(regId)))
+                    currParents.append(np.int(np.float(regId)))
+                    self.graph_[np.int(np.float(regId))]['targets'].append(np.int(np.float(row[0])))
+
+                self.graph_[np.int(np.float(row[0]))]['params'] = currInteraction
+                self.graph_[np.int(np.float(row[0]))]['regs'] = currParents
+                self.graph_[np.int(np.float(row[0]))]['level'] = -1 # will be modified later
+                allTargets.append(np.int(np.float(row[0])))
+
+                #if self.dyn_:
+                #    for b in range(self.nBins_):
+                #        binDict[b].append(gene(np.int(row[0]),'T', b))
+
+        #self.master_regulators_idx_ = set(np.setdiff1d(allRegs, allTargets))
+
+
+        masterRegs = []
+        for row in input_regs:
+            if np.shape(row)[0] != self.nBins_ + 1:
+                print ("Error: Inconsistent number of bins")
+                sys.exit()
+
+            masterRegs.append(int(float(row[0])))
+            self.graph_[int(float(row[0]))]['rates'] = [np.float(i) for i in row[1:]]
+            self.graph_[int(float(row[0]))]['regs'] = []
+            self.graph_[int(float(row[0]))]['level'] = -1
+
+            #if self.dyn_:
+            #    for b in range(self.nBins_):
+            #        binDict[b].append(gene(np.int(row[0]),'MR', b))
 
         self.master_regulators_idx_ = set(masterRegs)
 
