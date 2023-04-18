@@ -242,10 +242,10 @@ class sergio (object):
         # 1- shared_coop_state: if >0 then all interactions are modeled with that
         # coop state, and coop_states in input_file_taregts are ignored. Otherwise,
         # coop states are read from input file. Reasonbale values ~ 1-3
-        # 2- input_file_taregts: a csv file, one row per targets. Columns: Target Idx, #regulators,
+        # 2- input_file_taregts: a list of list, one row per targets. Columns: Target Idx, #regulators,
         # regIdx1,...,regIdx(#regs), K1,...,K(#regs), coop_state1,...,
         # coop_state(#regs)
-        # 3- input_file_regs: a csv file, one row per master regulators. Columns: Master regulator Idx,
+        # 3- input_file_regs: a list of list, one row per master regulators. Columns: Master regulator Idx,
         # production_rate1,...,productions_rate(#bins)
         # 4- input_file_taregts should not contain any line for master regulators
         # 5- For now, assume that nodes in graph are either master regulator or
