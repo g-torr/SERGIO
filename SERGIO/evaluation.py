@@ -128,9 +128,10 @@ def crispr_raw_network_gen(P_crispra,P_crispri,perc):
     low, up =np.percentile(x,[perc*100,100*(1-perc)])#threshold for low and up links
     J_reconstruct = np.where(A>up,1,np.where(A<low,-1,0))
     return J_reconstruct
-def PR_ROC(P_w,J,graphical=True):
+def PR_ROC(P_w,J,graphical=True,export_lines=False):
     '''Returns:
-     auPR,auROC. Considers all element of J but the diagonal ( which are set to 0 by construction, so they are not part of the prediction
+     auPR,auROC. Considers all element of J but the diagonal ( which are set to 0 by construction, so they are not part of the prediction.
+     export_lines = True means that the lines of the PR recall curve are returned
      '''
     from sklearn.preprocessing import label_binarize
     from sklearn import metrics
@@ -166,8 +167,8 @@ def PR_ROC(P_w,J,graphical=True):
 
     for w_index,w in enumerate([1,0,-1]):
         prob_pred = P_w[w_index,row,col]
+        fpr[w], tpr[w], _ = roc_curve(one_hot_enc[:,w_index],prob_pred)
         if graphical:
-            fpr[w], tpr[w], _ = roc_curve(one_hot_enc[:,w_index],prob_pred)
             plt.plot(fpr[w], tpr[w], lw=2, label='J= {}'.format(w))
         auROC[w] = metrics.roc_auc_score(one_hot_enc[:,w_index], prob_pred)
     if graphical:
@@ -179,4 +180,8 @@ def PR_ROC(P_w,J,graphical=True):
         plt.tight_layout()
         plt.text(0.8,0.2,'  AUROC\nJ= 1: '+str(round(auROC[1],2))+'\nJ= 0: '+str(round(auROC[0],2))+'\nJ=-1: '+str(round(auROC[-1],2))+'\n')
         plt.tight_layout()
-    return  auPR,auROC
+    if export_lines:
+        return auPR,auROC,{'fpr':fpr,'tpr':tpr,'precision':precision,'recall':recall}
+    else:
+        return  auPR,auROC
+    
