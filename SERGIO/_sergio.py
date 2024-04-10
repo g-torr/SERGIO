@@ -166,21 +166,21 @@ class sergio(object):
     """""""""""""""""""""""""""""""""""""""
     def outlier_effect(self, scData, outlier_prob, mean, scale):
         """
-        This function
+        scData: pd.Dataframe contaiing genes as rows, cells as columns 
         """
-        out_indicator = np.random.binomial(n = 1, p = outlier_prob, size = self.nGenes_)
+        out_indicator = np.random.binomial(n = 1, p = outlier_prob, size = len(self.gNames_))
         outlierGenesIndx = np.where(out_indicator == 1)[0]
         numOutliers = len(outlierGenesIndx)
 
         #### generate outlier factors ####
         outFactors = np.random.lognormal(mean = mean, sigma = scale, size = numOutliers)
         ##################################
-
-        scData = np.concatenate(scData, axis = 1)
+        #if isinstance(scData, pd.DataFrame):
+        #    scData = scData.values
         for i, gIndx in enumerate(outlierGenesIndx):
-            scData[gIndx,:] = scData[gIndx,:] * outFactors[i]
+            scData.iloc[gIndx,:] = scData.iloc[gIndx,:] * outFactors[i]
 
-        return np.split(scData, self.nBins_, axis = 1)
+        return scData
 
 
     def lib_size_effect(self, scData, mean, scale):
@@ -196,20 +196,21 @@ class sergio(object):
         returns modified single cell data ( np.array(nBin, nGene, nCell) )
         """
 
-        #TODO make sure that having bins does not intefere with this implementation
         ret_data = []
 
-        libFactors = np.random.lognormal(mean = mean, sigma = scale, size = (self.nBins_, self.nSC_))
-        for binExprMatrix, binFactors in zip(scData, libFactors):
-            normalizFactors = np.sum(binExprMatrix, axis = 0 )
-            binFactors = np.true_divide(binFactors, normalizFactors)
-            binFactors = binFactors.reshape(1, self.nSC_)
-            binFactors = np.repeat(binFactors, self.nGenes_, axis = 0)
+        libFactors = np.random.lognormal(mean = mean, sigma = scale, size = sum(self.nCells_))
+        if len(libFactors)!=scData.shape[1]:
+            raise ValueError('Number of cells in scData expected to be '+str(len(libFactors))+', having  '+str(scData.shape[1])+' instead')
+        for cell_idx, cellFactors in enumerate(libFactors):
+            cellExprMatrix = scData.iloc[:,cell_idx]#select a column of the dataframe
+            normalizFactors = np.sum(cellExprMatrix, axis = 0 )
+            cellFactors = np.true_divide(cellFactors, normalizFactors)
+            cellFactors = np.repeat(cellFactors, len(self.gNames_), axis = 0)#create a matrix with repeated rows, where value is given by the technical noise term for each cell
 
-            ret_data.append(np.multiply(binExprMatrix, binFactors))
+            ret_data.append(np.multiply(cellExprMatrix, cellFactors))
 
 
-        return libFactors, np.array(ret_data)
+        return libFactors, pd.DataFrame( np.array(ret_data).T, index = scData.index, columns = scData.columns)
 
 
     def dropout_indicator(self, scData, shape = 1, percentile = 65):
@@ -247,7 +248,7 @@ class sergio(object):
         """
         This function
         """
-        out_indicator = np.random.binomial(n = 1, p = outlier_prob, size = self.nGenes_)
+        out_indicator = np.random.binomial(n = 1, p = outlier_prob, size = len(self.gNames_))
         outlierGenesIndx = np.where(out_indicator == 1)[0]
         numOutliers = len(outlierGenesIndx)
 
@@ -278,7 +279,7 @@ class sergio(object):
             normalizFactors_S = np.sum(binExprS, axis = 0 )
             binFactors = np.true_divide(binFactors, normalizFactors_U + normalizFactors_S)
             binFactors = binFactors.reshape(1, self.nSC_)
-            binFactors = np.repeat(binFactors, self.nGenes_, axis = 0)
+            binFactors = np.repeat(binFactors, len(self.gNames_), axis = 0)
 
             ret_data_U.append(np.multiply(binExprU, binFactors))
             ret_data_S.append(np.multiply(binExprS, binFactors))
