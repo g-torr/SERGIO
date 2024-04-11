@@ -166,8 +166,10 @@ class sergio(object):
     """""""""""""""""""""""""""""""""""""""
     def outlier_effect(self, scData, outlier_prob, mean, scale):
         """
-        scData: pd.Dataframe contaiing genes as rows, cells as columns 
+        scData: 2d np.array or pd.Dataframe contaiing genes as rows, cells as columns 
         """
+        if isinstance(scData,pd.DataFrame):
+            scData = scData.values
         out_indicator = np.random.binomial(n = 1, p = outlier_prob, size = len(self.gNames_))
         outlierGenesIndx = np.where(out_indicator == 1)[0]
         numOutliers = len(outlierGenesIndx)
@@ -178,7 +180,7 @@ class sergio(object):
         #if isinstance(scData, pd.DataFrame):
         #    scData = scData.values
         for i, gIndx in enumerate(outlierGenesIndx):
-            scData.iloc[gIndx,:] = scData.iloc[gIndx,:] * outFactors[i]
+            scData[gIndx,:] = scData[gIndx,:] * outFactors[i]
 
         return scData
 
@@ -202,7 +204,7 @@ class sergio(object):
         if len(libFactors)!=scData.shape[1]:
             raise ValueError('Number of cells in scData expected to be '+str(len(libFactors))+', having  '+str(scData.shape[1])+' instead')
         for cell_idx, cellFactors in enumerate(libFactors):
-            cellExprMatrix = scData.iloc[:,cell_idx]#select a column of the dataframe
+            cellExprMatrix = scData[:,cell_idx]#select a column of the dataframe
             normalizFactors = np.sum(cellExprMatrix, axis = 0 )
             cellFactors = np.true_divide(cellFactors, normalizFactors)
             cellFactors = np.repeat(cellFactors, len(self.gNames_), axis = 0)#create a matrix with repeated rows, where value is given by the technical noise term for each cell
@@ -210,7 +212,7 @@ class sergio(object):
             ret_data.append(np.multiply(cellExprMatrix, cellFactors))
 
 
-        return libFactors, pd.DataFrame( np.array(ret_data).T, index = scData.index, columns = scData.columns)
+        return libFactors, np.array(ret_data).T
 
 
     def dropout_indicator(self, scData, shape = 1, percentile = 65):
@@ -224,6 +226,8 @@ class sergio(object):
         of the input scData
         returns: np.array containing binary indactors showing dropouts
         """
+        if isinstance(scData,pd.DataFrame):
+            scData = scData.values
         scData = np.array(scData)
         scData_log = np.log(np.add(scData,1))
         log_mid_point = np.percentile(scData_log, percentile)

@@ -103,17 +103,23 @@ class perturbation(sergio):
         sim.simulate(nCells = nCells, noise_s = 1, safety_iter = 150, scale_iter = 10)
         return sim
     def perturbation_all(self,nCells,multiprocess = True):
+        '''creates the self.crispri_data,self.crispra_data,self.wt:
+        Self.crispri_data,self.crispra_data are multidimensional np.arrays with: 
+        - dimension 0 describes the index target gene
+        - dimension 1 describe the index of genes whose expression is measured
+        - dimension 2 describes the index of cell
+        self.wt is a 2d np.array with
+        - dimension 1 describe the index of genes whose expression is measured
+        - dimension 2 describes the index of cell
+ 
+        '''
         if multiprocess:
             from pathos.multiprocessing import ProcessingPool as Pool
             #from multiprocessing.pool import Pool
 
         grn = copy.deepcopy(self.grn_)#it is the grn that I pass to perturbation experiments
         nGenes = len(grn.attr_['genes'])
-        self.crispri_data = np.zeros(shape = (len(self.nodes_2perturb),nGenes,nCells))
-        self.crispra_data = np.zeros(shape = (len(self.nodes_2perturb),nGenes,nCells))
-        #dimension 0 describes the index target gene
-        #dimension 1 describe the index of genes whose expression is measured
-        #dimension 2 describes the index of cell
+        self.nCells_ = [nCells]#it is only one cell type, for more, do [nCells]*#celltypes
         
         '''initialise the simulator'''
         mrs = grn.get_mrs()
@@ -122,22 +128,61 @@ class perturbation(sergio):
         grn.init(mr_profs, update_half_resp = True)
         '''now simulate wild type'''
         self.wt = self._wild_type(grn=grn,mr_profs=mr_profs,nCells=nCells)
-        #TODO make it parallel
-        def simplified_pert_funct(target_gene,basal_prod):
+        def wrapper_pert_funct(target_gene,basal_prod):
             return self._single_perturbation(grn = grn,mr_profs=mr_profs,target_gene=target_gene,basal_prod=basal_prod,nCells=nCells,cutting=True).getSimExpr().values            
 
         if multiprocess:
             with Pool() as pool:
-                self.crispri_data = np.array(list(pool.map(partial(simplified_pert_funct,basal_prod=self.basal_prod_crispri),self.nodes_2perturb)))
-                self.crispra_data = np.array(list(pool.map(partial(simplified_pert_funct,basal_prod=self.basal_prod_crispra),self.nodes_2perturb)))
+                self.crispri_data = np.array(list(pool.map(partial(wrapper_pert_funct,basal_prod=self.basal_prod_crispri),self.nodes_2perturb)))
+                self.crispra_data = np.array(list(pool.map(partial(wrapper_pert_funct,basal_prod=self.basal_prod_crispra),self.nodes_2perturb)))
         else:
+            self.crispri_data = np.zeros(shape = (len(self.nodes_2perturb),nGenes,nCells))
+            self.crispra_data = np.zeros(shape = (len(self.nodes_2perturb),nGenes,nCells))
             for i,target_gene in tqdm(enumerate(self.nodes_2perturb)):
                 #simulate Crispri
                 self.crispri_data[i]= self._single_perturbation(grn = grn,mr_profs=mr_profs,target_gene=target_gene,basal_prod=self.basal_prod_crispri,nCells=nCells,cutting=True).getSimExpr().values
                 #simulate Crispra
                 self.crispra_data[i]= self._single_perturbation(grn = grn,mr_profs=mr_profs,target_gene=target_gene,basal_prod=self.basal_prod_crispra,nCells=nCells,cutting=True).getSimExpr().values
+    def technical_noise(self,multiprocess = True):
+        wt = self._technical_noise(self.wt)
+        if multiprocess:
+            from pathos.multiprocessing import ProcessingPool as Pool
+            with Pool() as pool:
+                crispri = pool.map(self._technical_noise,self.crispri_data)
+                crispra = pool.map(self._technical_noise,self.crispri_data)                
+             
+        else:
+                    crispri = list(map(_technical_noise,self.crispri_data))
+                    crispra = list(map(_technical_noise,self.crispri_data))                
+                    wt = list(map(_technical_noise,self.wt)) 
 
-        
+        return wt,crispri,crispra
+    def _technical_noise(self,expr):
+        '''
+        Add technical noise to expression.
+        '''
+        """
+        Add outlier genes
+        """
+        expr_O = self.outlier_effect(expr, outlier_prob = 0.01, mean = 0.8, scale = 1)
+
+        """
+        Add Library Size Effect
+        """
+        libFactor, expr_O_L = self.lib_size_effect(expr_O, mean = 4.6, scale = 0.4)
+
+        """
+        Add Dropouts
+        """
+        binary_ind = self.dropout_indicator(expr_O_L, shape = 6.5, percentile = 82)
+        expr_O_L_D = np.multiply(binary_ind, expr_O_L)
+
+        """
+        Convert to UMI count
+        """
+        count_matrix = self.convert_to_UMIcounts(expr_O_L_D)
+        return count_matrix
+    
     @staticmethod
     def draw_net(G,offset = 0.05,node_size = 1000,**kwargs):
         c =np.array([ c['weight'] for a,b,c in list(G.edges(data=True))])
