@@ -11,8 +11,7 @@ from SERGIO.GRN._grn import GRN
 from SERGIO.GRN._components import Gene, SingleInteraction
 from collections import Counter
 import itertools
-import seaborn as sns
-import matplotlib.pyplot as plt
+import time
 import copy
 import random
 import logging
@@ -24,22 +23,22 @@ if nx.__version__>'3.':
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-class perturbation(sergio):
+class Perturbation(sergio):
     '''
     Use method self.perturbation_all to simulate perturbations.
     The outcome is stored in self.wt, self.crispra_data, and self.crispri_data
     '''
-    def __init__(self,grn,relative_path='SERGIO') -> None:
+    def __init__(self,relative_path='SERGIO') -> None:
         '''
         Load the simulation as a sergio object that has been already run
         '''
-        self.grn_ = grn
-        self.gNames_ = self._get_gene_names(grn)
         self.data_path = os.path.join(relative_path,'data')#path where simulation are saved/loaded
-    def init(self,basal_prod_crispri = 0.2,basal_prod_crispra = 7):
+    def initialise_parameters(self,grn,basal_prod_crispri = 0.2,basal_prod_crispra = 7):
         '''
         basal_prod_crispri, basal_prod_crispra is the basal production of the nodes that are perturbed with crispri and crispra respectively
         '''
+        self.grn_ = grn
+        self.gNames_ = self._get_gene_names(grn)
         G = self.grn_.to_networkx()
         #finds the nodes with out-degree >0
         n,d = zip(*dict(G.out_degree()).items())
@@ -47,12 +46,28 @@ class perturbation(sergio):
         logger.info('Number of nodes will be perturbed is '+str(len(self.nodes_2perturb)))
         self.basal_prod_crispri = basal_prod_crispri
         self.basal_prod_crispra = basal_prod_crispra
-    def create(self,N):
-        #create GRN object
-        G = self.create_random_graph(N)
-        self.grn_ = grn_from_networkx(G)
-        self.G = self.grn_.to_networkx()
-        #grn = copy.deepcopy(self.grn)#it is the grn that I pass to perturbation experiments
+    @staticmethod
+    def create(N):
+        '''
+        Static method to create a Gene Regulatory Network (GRN) object.
+
+        Parameters:
+        - N (int): Number of nodes in the generated random graph.
+
+        Returns:
+        - grn_ (GRN): Generated Gene Regulatory Network object.
+
+        Description:
+        This static method creates a Gene Regulatory Network (GRN) object.
+        It generates a random directed graph with a specified number of nodes using the
+        `create_random_graph` function from the perturbation module.
+        Then, it converts the generated graph to a GRN object using the `grn_from_networkx` function.
+        The resulting GRN object is returned.
+        '''
+
+        G = perturbation.create_random_graph(N)
+        grn_ = grn_from_networkx(G)
+        return grn_
     @staticmethod
     def _wild_type(grn,mr_profs,nCells):
         '''Return a numpy array of shape nGenes,nCells'''
@@ -127,7 +142,12 @@ class perturbation(sergio):
         mr_profs.build_rnd(range_dict={'L': [1, 2.5], 'H': [3.5, 5]})
         grn.init(mr_profs, update_half_resp = True)
         '''now simulate wild type'''
+        start_time = time.time()
         self.wt = self._wild_type(grn=grn,mr_profs=mr_profs,nCells=nCells)
+
+        print("--- %s seconds ---" % (time.time() - start_time))
+        logger.info('Time of execution for wt is  %s seconds'% (time.time() - start_time))
+
         def wrapper_pert_funct(target_gene,basal_prod):
             return self._single_perturbation(grn = grn,mr_profs=mr_profs,target_gene=target_gene,basal_prod=basal_prod,nCells=nCells,cutting=True).getSimExpr().values            
 
@@ -143,23 +163,50 @@ class perturbation(sergio):
                 self.crispri_data[i]= self._single_perturbation(grn = grn,mr_profs=mr_profs,target_gene=target_gene,basal_prod=self.basal_prod_crispri,nCells=nCells,cutting=True).getSimExpr().values
                 #simulate Crispra
                 self.crispra_data[i]= self._single_perturbation(grn = grn,mr_profs=mr_profs,target_gene=target_gene,basal_prod=self.basal_prod_crispra,nCells=nCells,cutting=True).getSimExpr().values
-    def technical_noise(self,multiprocess = True):
-        wt = self._technical_noise(self.wt)
+    def technical_noise(self,crispri = None, crispra = None, wt = None,multiprocess = True):
+        '''
+        Apply technical noise to the simulated expression data from perturbation.
+
+
+        Returns:
+        - wt (list): List of expression data with technical noise applied for the wild type.
+        - crispri (list): List of expression data with technical noise applied for CRISPRi experiments.
+        - crispra (list): List of expression data with technical noise applied for CRISPRa experiments.
+
+        Description:
+        This method applies technical noise to the expression data, including outlier genes, library size effect,
+        and dropouts. The noise is added separately for each experiment type (wild type, CRISPRi, CRISPRa).
+        If `multiprocess` is set to True, multiprocessing is utilized to speed up the computation.
+        '''
+        if (wt is None ) or (crispri is None) or (cirspra is None):
+            wt = self.wt
+            crispri = self.crispri_data
+            crispra = self.crispra_data
+        wt = self._apply_technical_noise(wt)
         if multiprocess:
             from pathos.multiprocessing import ProcessingPool as Pool
             with Pool() as pool:
-                crispri = pool.map(self._technical_noise,self.crispri_data)
-                crispra = pool.map(self._technical_noise,self.crispri_data)                
+                crispri = pool.map(self._apply_technical_noise,crispri_data)
+                crispra = pool.map(self._apply_technical_noise,crispri_data)                
              
         else:
-                    crispri = list(map(_technical_noise,self.crispri_data))
-                    crispra = list(map(_technical_noise,self.crispri_data))                
-                    wt = list(map(_technical_noise,self.wt)) 
-
+            crispri = list(map(self._apply_technical_noise,self.crispri_data))
+            crispra = list(map(self._apply_technical_noise,self.crispri_data))                
+            
         return wt,crispri,crispra
-    def _technical_noise(self,expr):
+    def _apply_technical_noise(self,expr):
         '''
-        Add technical noise to expression.
+        Apply technical noise to the given expression data.
+
+        Parameters:
+        - expr (array-like): Input expression data.
+
+        Returns:
+        - count_matrix (array-like): Expression data with technical noise applied.
+
+        Description:
+        This method adds technical noise to the input expression data by simulating outlier genes,
+        library size effect, and dropouts. It returns the expression data with noise applied.
         '''
         """
         Add outlier genes
@@ -220,9 +267,30 @@ class perturbation(sergio):
         nx.draw_networkx_edges(G,pos = new_nodePos,edgelist=np.array(bi_edges)[bi_weight<0],edge_color= 'red',arrowsize = 10,arrowstyle='-[',alpha = 0.6,width = 1.5,node_size=node_size)
     @staticmethod
     def create_random_graph(N):
-        '''N:number of nodes
-        Note that the number of nodes in the graph will likely be smaller than N
-        Weights sampled from 2 uniform distributions
+        '''
+        Generate a random directed graph with a specified number of nodes.
+
+        Parameters:
+        - N (int): Number of nodes in the graph.
+
+        Returns:
+        - G (networkx.DiGraph): Random directed graph.
+
+        Description:
+        This function generates a random directed graph with a specified number of nodes.
+        The graph is generated using the `random_k_out_graph` function from the NetworkX library,
+        which creates a directed graph where each node has a fixed out-degree.
+        The graph is then filtered to retain only the largest strongly connected component.
+        The weights of the edges are sampled from two uniform distributions,
+        with a specified fraction of positive links.
+        The final graph is returned as a NetworkX DiGraph object.
+
+        Notes:
+        - The number of nodes in the graph may be smaller than the specified N.
+        - This function may generate graphs with fewer nodes or edges than expected
+        due to the filtering process to retain only the largest strongly connected component.
+        - The weights of the edges are sampled from two uniform distributions
+        to introduce randomness and variability in the graph structure.
         '''
         weight_pos = 3
         weight_neg = -weight_pos
